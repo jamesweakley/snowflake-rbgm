@@ -1,0 +1,32 @@
+{
+    "schemaObjectPrivileges": [
+        {
+            "Purpose": "Grant data warehouse developers the complete freedom they need in the development environment",
+            "Role": "DataWarehouseDevelopers",
+            "Databases": "*_DEV",
+            "Schemas": "%",
+            "Tables": "%",
+            "Views": "%",
+            "Privileges": ["SELECT","INSERT","UPDATE","DELETE","TRUNCATE"]
+        },
+        {
+            "Purpose": "Grant reporting users the ability to select from any view in all production databases and schemas",
+            "Role": "ReportViewers",
+            "Databases": "*_PROD",
+            "Schemas": "%",
+            "Tables": "",
+            "Views": "%",
+            "Privileges": ["SELECT"]
+        },
+        {
+            "Purpose": "Grant customer service users the ability to select only from Customer-related views in production only",
+            "Role": "CustomerService",
+            "Databases": "*_PROD",
+            "Schemas": "%",
+            "Tables": "CUSTOMER%",
+            "Views": "%",
+            "Privileges": ["SELECT"]
+        }
+    ]
+}
+
