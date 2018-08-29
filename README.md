@@ -12,7 +12,7 @@ specific objects, or all objects of a specific type, e.g.
 
 Nested roles are supported, which allows a hierarchy to be created.
 
-###What this script provides in addition
+### What this script provides in addition
 This script provides a slightly different approach. Rather than using nested hierarchies to reduce 
 the number of GRANTs required, a rule file is provided which supports wildcards.
 
@@ -24,7 +24,7 @@ enforcement (e.g. pull requests with mandatory reviews).
 By default, the script will also remove any privileges not specified by the file, so any direct adding of 
 privileges into the database are revoked at each run.
 
-###Restrictions
+### Restrictions
 
 Currently, only [schemaObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) are 
 supported, and only for tables and views.
@@ -60,7 +60,7 @@ docker run -it --rm \
   python:3 /bin/bash -c "pip install --upgrade snowflake-connector-python && python apply_permissions.py -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER -r $SNOWFLAKE_ROLE -w $SNOWFLAKE_WAREHOUSE --snowflake-region $SNOWFLAKE_REGION"
 ```
 
-###File specification
+### File specification
 See below example, where each schemaObjectPrivileges child contains:
 * **Purpose**: A plain english description of the rule
 * **Role**: The name of the Snowflake role to grant permission to
@@ -71,7 +71,7 @@ See below example, where each schemaObjectPrivileges child contains:
 * **Privileges**: The [schemaObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) to grant. (Must be possible or it is ignored, e.g. UPDATE applied to a view)
 
 
-###Example file
+#### Example file
 ```
 {
     "schemaObjectPrivileges": [
