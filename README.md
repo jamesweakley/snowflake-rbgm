@@ -71,7 +71,7 @@ See below example, where each schemaObjectPrivileges child contains:
 * **Privileges**: The [schemaObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) to grant. (Must be possible or it is ignored, e.g. UPDATE applied to a view)
 
 
-####Example
+###Example file
 ```
 {
     "schemaObjectPrivileges": [
