@@ -96,7 +96,11 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
             grant_file.close()
         else:
             print("Executing GRANT statements in database")
-            execute_snowflake_query(database, None, all_missing_privileges_string, verbose)
+            results = execute_snowflake_query(database, None, all_missing_privileges_string, verbose)
+            for cursor in results:
+                for row in cursor:
+                    if 'Insufficient privileges' in row[0]:
+                        raise ValueError(row[0])
 
     if len(all_superfluous_privileges.values()) == 0:
         print("No superfluous privileges, so no file output or execution required")
@@ -108,7 +112,11 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
             grant_file.close()
         else:
             print("Executing REVOKE statements in database")
-            execute_snowflake_query(database, None, all_superfluous_privileges_string, verbose)
+            results = execute_snowflake_query(database, None, all_superfluous_privileges_string, verbose)
+            for cursor in results:
+                for row in cursor:
+                    if 'Insufficient privileges' in row[0]:
+                        raise ValueError(row[0])
 
 
     print("Completed successfully")
