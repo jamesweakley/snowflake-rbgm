@@ -1,4 +1,13 @@
 {
+    "schemaPrivileges": [
+        {
+            "Purpose": "Preserve the demo database privileges",
+            "Role": "PUBLIC",
+            "Databases": "DEMO_DB",
+            "Schemas": "PUBLIC",
+            "Privileges": ["MODIFY","CREATE FUNCTION","CREATE FILE FORMAT","CREATE PIPE","USAGE","CREATE STAGE","CREATE SEQUENCE","MONITOR","CREATE TABLE","CREATE VIEW"]
+        }
+    ],
     "schemaObjectPrivileges": [
         {
             "Purpose": "Grant data warehouse developers the complete freedom they need in the development environment",

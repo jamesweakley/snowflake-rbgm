@@ -26,12 +26,9 @@ privileges into the database are revoked at each run.
 
 ### Restrictions
 
-Currently, only [schemaObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) are 
-supported, and only for tables and views.
-
-The script also does not generate grant statements that include "ALL" clauses, it's only specific objects. This means that it only acts on current tables and views, and must be re-ran each time tables or views are added.
-
-For this reason, it is recommended that it is triggered automatically after any schema change operations.
+Currently, the following [GRANT clauses](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) are supported:
+- schemaPrivileges
+- schemaObjectPrivileges, but only for tables and views.
 
 
 ## Execution
@@ -42,7 +39,10 @@ python apply_permissions.py -a $SNOWFLAKE_ACCOUNT -u $SNOWFLAKE_USER -r $SNOWFLA
 ```
 it is expected that the environment variable SNOWSQL_PWD be set prior to calling the script, you should make this available to your build agent in some secure fashion.
 
-You'll need to map between the branch name and the target environment name, e.g. 
+You'll need to map between the branch name and the target environment name, e.g. master->prod
+
+The user account will need the ability to manage grants. You can either use the existing SECURITYADMIN role or create another role and delegate like so:
+```GRANT MANAGE GRANTS ON ACCOUNT TO ROLE "DEPLOYER";```
 
 Or if you prefer docker, set the environment variables and run like so:
 ```
@@ -74,6 +74,15 @@ See below example, where each schemaObjectPrivileges child contains:
 #### Example file
 ```
 {
+    "schemaPrivileges": [
+        {
+            "Purpose": "Preserve the demo database privileges",
+            "Role": "PUBLIC",
+            "Databases": "DEMO_DB",
+            "Schemas": "PUBLIC",
+            "Privileges": ["MODIFY","CREATE FUNCTION","CREATE FILE FORMAT","CREATE PIPE","USAGE","CREATE STAGE","CREATE SEQUENCE","MONITOR","CREATE TABLE","CREATE VIEW"]
+        }
+    ],
     "schemaObjectPrivileges": [
         {
             "Purpose": "Grant data warehouse developers the complete freedom they need in the development environment",
