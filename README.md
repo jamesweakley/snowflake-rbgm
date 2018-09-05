@@ -27,8 +27,9 @@ privileges into the database are revoked at each run.
 ### Restrictions
 
 Currently, the following [GRANT clauses](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) are supported:
+- accountObjectPrivileges, but only for databases and warehouse (resource monitors are left alone)
 - schemaPrivileges
-- schemaObjectPrivileges, but only for tables and views.
+- schemaObjectPrivileges, but only for tables and views (stages, file formats, UDFs and sequences are left alone).
 
 
 ## Execution
@@ -61,9 +62,24 @@ docker run -it --rm \
 ```
 
 ### File specification
-See below example, where each schemaObjectPrivileges child contains:
+See below example.
+
+Each accountObjectPrivileges item contains:
 * **Purpose**: A plain english description of the rule
-* **Role**: The name of the Snowflake role to grant permission to
+* **Role**: The name of the Snowflake role to grant permission to (specify exactly)
+* Either **Databases** OR **Warehouses** : Matches the databases/warehouses to apply to. Format is [unix filename pattern](https://docs.python.org/2/library/fnmatch.html).
+* **Privileges**: The [accountObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) to grant. (Must be possible or script will error)
+
+Each schemaPrivileges item contains:
+* **Purpose**: A plain english description of the rule
+* **Role**: The name of the Snowflake role to grant permission to (specify exactly)
+* **Databases**: Matches the databases to apply to. Format is [unix filename pattern](https://docs.python.org/2/library/fnmatch.html).
+* **Schemas**: Matches the schemas to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html))
+* **Privileges**: The [schemaPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) to grant. (Must be possible or script will error)
+
+Each schemaObjectPrivileges item contains:
+* **Purpose**: A plain english description of the rule
+* **Role**: The name of the Snowflake role to grant permission to (specify exactly)
 * **Databases**: Matches the databases to apply to. Format is [unix filename pattern](https://docs.python.org/2/library/fnmatch.html).
 * **Schemas**: Matches the schemas to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html))
 * **Tables**: Matches the tables to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html)). Leave empty to not apply to any tables.
@@ -74,6 +90,20 @@ See below example, where each schemaObjectPrivileges child contains:
 #### Example file
 ```
 {
+    "accountObjectPrivileges": [
+        {
+            "Purpose": "Grant usage level privileges to everyone on all databases",
+            "Role": "PUBLIC",
+            "Databases": "*",
+            "Privileges": ["USAGE"]
+        },
+        {
+            "Purpose": "Grant usage on GENERAL_ANALYSIS to all users",
+            "Role": "PUBLIC",
+            "Warehouses": "GENERAL_ANALYSIS",
+            "Privileges": ["USAGE"]
+        }
+    ],
     "schemaPrivileges": [
         {
             "Purpose": "Preserve the demo database privileges",

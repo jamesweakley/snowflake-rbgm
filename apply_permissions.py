@@ -20,14 +20,74 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
     with open(permissions_file) as f:
         permissions_json = json.load(f)
 
+    all_missing_privileges_string = "BEGIN TRANSACTION;\n"
+    all_superfluous_privileges_string = "BEGIN TRANSACTION;\n"
+
+    all_warehouses = fetch_warehouses(verbose)
+    existing_warehouse_grants = generate_existing_warehouse_privileges(all_warehouses,verbose)
+    existing_database_grants = generate_existing_database_privileges(all_databases,verbose)
+    all_defined_warehouse_privileges = []
+    all_defined_database_privileges = []
+
+    for account_object_privilege in permissions_json["accountObjectPrivileges"]:
+        print("Applying rule {0}".format(account_object_privilege["Purpose"]))
+        if account_object_privilege.get("Warehouses") != None and account_object_privilege.get("Databases") != None:
+            raise ValueError("Account Object rule has both Warehouses and Databases defined, please choose one of these")
+
+        if account_object_privilege.get("Warehouses") != None:
+            for privilege in account_object_privilege["Privileges"]:
+                for warehouse in [x for x in all_warehouses if fnmatch.fnmatch(x, account_object_privilege.get("Warehouses"))]:
+                    all_defined_warehouse_privileges.append("GRANT {0} ON WAREHOUSE {1} TO ROLE {2}".format(privilege,warehouse,account_object_privilege["Role"]))
+
+        if account_object_privilege.get("Databases") != None:
+            for privilege in account_object_privilege["Privileges"]:
+                for database in [x for x in all_databases if fnmatch.fnmatch(x, account_object_privilege.get("Databases"))]:
+                    all_defined_database_privileges.append(
+                        "GRANT {0} ON DATABASE {1} TO ROLE {2}".format(privilege, database, account_object_privilege["Role"]))
+
+    all_missing_warehouse_privileges = (list(set(all_defined_warehouse_privileges) - set(existing_warehouse_grants)))
+    all_superfluous_warehouse_privileges = (list(set(existing_warehouse_grants) - set(all_defined_warehouse_privileges)))
+    all_missing_database_privileges = (list(set(all_defined_database_privileges) - set(existing_database_grants)))
+    all_superfluous_database_privileges = (list(set(existing_database_grants) - set(all_defined_database_privileges)))
+    if verbose:
+        print("Statements to grant existing warehouse privileges in account: {0}".format(all_missing_warehouse_privileges))
+        print("Statements to revoke superfluous warehouse privileges in account: {0}".format(all_superfluous_warehouse_privileges))
+        print("Statements to grant existing database privileges in account: {0}".format(all_missing_database_privileges))
+        print("Statements to revoke superfluous database privileges in account: {0}".format(all_superfluous_database_privileges))
+
+    all_missing_privileges_string = "{0}\n\n// ========================== Account object privileges".format(all_missing_privileges_string)
+
+    if len(all_missing_warehouse_privileges) > 0:
+        all_missing_privileges_string = "{0}\n// ----- Warehouse Privileges\n{1};".format(
+            all_missing_privileges_string,
+            ";\n".join(all_missing_warehouse_privileges))
+
+    if len(all_missing_database_privileges) > 0:
+        all_missing_privileges_string = "{0}\n// ----- Database Privileges\n{1};".format(
+            all_missing_privileges_string,
+            ";\n".join(all_missing_database_privileges))
+
+    all_superfluous_privileges_string = "{0}\n\n// ========================== Account object privileges".format(all_superfluous_privileges_string)
+
+    if len(all_superfluous_warehouse_privileges) > 0:
+        all_superfluous_privileges_string = "{0}\n// ----- Warehouse Privileges\n{1};".format(
+            all_superfluous_privileges_string,
+            ";\n".join(all_superfluous_warehouse_privileges).replace('GRANT ', 'REVOKE ').replace(' TO ROLE ', ' FROM ROLE '))
+
+    if len(all_superfluous_database_privileges) > 0:
+        all_superfluous_privileges_string = "{0}\n// ----- Database Privileges\n{1};".format(
+            all_superfluous_privileges_string,
+            ";\n".join(all_superfluous_database_privileges).replace('GRANT ', 'REVOKE ').replace(' TO ROLE ', ' FROM ROLE '))
+
+
     # for each database, gather all existing grant statements
     all_defined_schema_privileges={}
     all_defined_schema_object_privileges={}
     existing_database_schema_object_grants={}
     existing_database_schema_grants={}
     for database in all_databases:
-        existing_database_schema_object_grants[database] = generate_existing_table_and_view_privileges_sql(database, verbose)
         existing_database_schema_grants[database] = generate_existing_schema_privileges_sql(database, verbose)
+        existing_database_schema_object_grants[database] = generate_existing_table_and_view_privileges_sql(database, verbose)
         all_defined_schema_privileges[database]=set()
         all_defined_schema_object_privileges[database]=set()
         if verbose:
@@ -79,8 +139,6 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
     all_missing_schema_object_privileges={}
     all_superfluous_schema_object_privileges={}
 
-    all_missing_privileges_string = "BEGIN TRANSACTION;\n"
-    all_superfluous_privileges_string = "BEGIN TRANSACTION;\n"
     for database in all_databases:
         all_missing_schema_privileges[database] = (list(set(all_defined_schema_privileges[database]) - set(existing_database_schema_grants[database])))
         all_superfluous_schema_privileges[database] = list(set(existing_database_schema_grants[database]) - set(all_defined_schema_privileges[database]))
@@ -194,6 +252,16 @@ def fetch_databases(verbose):
                 databases.append(row[1])
     return databases
 
+def fetch_warehouses(verbose):
+    query = "SHOW WAREHOUSES"
+    results = execute_snowflake_query('UTIL_DB', None, query, verbose)
+    warehouses = []
+    for cursor in results:
+        for row in cursor:
+            warehouses.append(row[0])
+    return warehouses
+
+
 def fetch_roles(snowflake_database, snowflake_schema, verbose):
     query = "SHOW ROLES"
     results = execute_snowflake_query(snowflake_database, snowflake_schema, query, verbose)
@@ -231,6 +299,32 @@ def generate_existing_schema_privileges_sql(snowflake_database, verbose):
             if row[0] != 'Statement executed successfully.':
                 existing_privileges.append(row[0])
     return existing_privileges
+
+
+def generate_existing_warehouse_privileges(warehouse_list, verbose):
+    query=""
+    for warehouse in warehouse_list:
+        query = "{0}SHOW GRANTS ON WAREHOUSE {1};\n".format(query,warehouse)
+    results = execute_snowflake_query('UTIL_DB', None, query, verbose)
+    existing_privileges = []
+    for cursor in results:
+        for row in cursor:
+            if row[0] != 'Statement executed successfully.' and row[4] == 'ROLE' and row[1] != 'OWNERSHIP':
+                existing_privileges.append("GRANT {0} ON WAREHOUSE {1} TO ROLE {2}".format(row[1],row[3],row[5]))
+    return existing_privileges
+
+def generate_existing_database_privileges(database_list, verbose):
+    query=""
+    for database in database_list:
+        query = "{0}SHOW GRANTS ON DATABASE {1};\n".format(query,database)
+    results = execute_snowflake_query('UTIL_DB', None, query, verbose)
+    existing_privileges = []
+    for cursor in results:
+        for row in cursor:
+            if row[0] != 'Statement executed successfully.' and row[4] == 'ROLE' and row[1] != 'OWNERSHIP':
+                existing_privileges.append("GRANT {0} ON DATABASE {1} TO ROLE {2}".format(row[1],row[3],row[5]))
+    return existing_privileges
+
 
 def generate_existing_account_object_privileges_sql(snowflake_database, verbose):
     query = """SELECT 'GRANT '||PRIVILEGE_TYPE||' ON '||OBJECT_TYPE||' \"'||OBJECT_CATALOG||'\".\"'||OBJECT_NAME||'\" TO ROLE \"'||GRANTEE||'\"' AS Privileges

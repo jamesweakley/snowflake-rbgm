@@ -1,4 +1,18 @@
 {
+    "accountObjectPrivileges": [
+        {
+            "Purpose": "Grant usage level privileges to everyone on all databases",
+            "Role": "PUBLIC",
+            "Databases": "*",
+            "Privileges": ["USAGE"]
+        },
+        {
+            "Purpose": "Grant usage on GENERAL_ANALYSIS warehouse to all users",
+            "Role": "PUBLIC",
+            "Warehouses": "GENERAL_ANALYSIS",
+            "Privileges": ["USAGE"]
+        }
+    ],
     "schemaPrivileges": [
         {
             "Purpose": "Preserve the demo database privileges",
