@@ -3,6 +3,11 @@ Simplifies the management of Snowflake grants, enables strict control and stops 
 
 Allows security permissions in [Snowflake](https://www.snowflake.net) to be managed via rules that support wildcards and apply across all databases.
 
+## UPDATE JAN 2019
+As of release [3.9](https://community.snowflake.com/s/article/3-9-Release-Notes-January-10-2019), "future grants" now exist!
+This script will soon be updated to accomodate these. If your privileges tend to be broad (e.g. you use GRANT ALL PRIVILEGES a lot), this new feature should heavily reduce your need for a script like this, though it is still a useful change management/auditing mechanism.
+
+
 ## How it works
 ### Default Snowflake behaviour
 Snowflake provides the ability to grant collections of users (known as roles) privileges on either 
