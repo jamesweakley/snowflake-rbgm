@@ -3,10 +3,16 @@ Simplifies the management of Snowflake grants, enables strict control and stops 
 
 Allows security permissions in [Snowflake](https://www.snowflake.net) to be managed via rules that support wildcards and apply across all databases.
 
-## UPDATE JAN 2019
-As of release [3.9](https://community.snowflake.com/s/article/3-9-Release-Notes-January-10-2019), "future grants" now exist!
-This script will soon be updated to accomodate these. If your privileges tend to be broad (e.g. you use GRANT ALL PRIVILEGES a lot), this new feature should heavily reduce your need for a script like this, though it is still a useful change management/auditing mechanism.
-
+## UPDATE FEB 2019
+A breaking change was made, switching from a single role per privilege definition, to a list of roles.
+For existing users, rename all references to "Role" to "Roles", like so:
+```
+"Role":"PUBLIC"
+```
+becomes
+```
+"Roles":["PUBLIC"]
+```
 
 ## How it works
 ### Default Snowflake behaviour
@@ -89,6 +95,8 @@ Each schemaObjectPrivileges item contains:
 * **Schemas**: Matches the schemas to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html))
 * **Tables**: Matches the tables to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html)). Leave empty to not apply to any tables.
 * **Views**: Matches the views to apply the rule to (uses the [Snowflake LIKE format](https://docs.snowflake.net/manuals/sql-reference/functions/like.html))Leave empty to not apply to any views.
+* **FutureTables**: Set to true to apply these privileges to the specified roles all future tables in databases and schemas currently matching the pattern
+* **FutureViews**: Set to true to apply these privileges to the specified roles all future views in databases and schemas currently matching the pattern
 * **Privileges**: The [schemaObjectPrivileges](https://docs.snowflake.net/manuals/sql-reference/sql/grant-privilege.html) to grant. (Must be possible or it is ignored, e.g. UPDATE applied to a view)
 
 
@@ -98,13 +106,13 @@ Each schemaObjectPrivileges item contains:
     "accountObjectPrivileges": [
         {
             "Purpose": "Grant usage level privileges to everyone on all databases",
-            "Role": "PUBLIC",
+            "Roles": ["PUBLIC"],
             "Databases": "*",
             "Privileges": ["USAGE"]
         },
         {
             "Purpose": "Grant usage on GENERAL_ANALYSIS to all users",
-            "Role": "PUBLIC",
+            "Roles": ["PUBLIC"],
             "Warehouses": "GENERAL_ANALYSIS",
             "Privileges": ["USAGE"]
         }
@@ -112,7 +120,7 @@ Each schemaObjectPrivileges item contains:
     "schemaPrivileges": [
         {
             "Purpose": "Preserve the demo database privileges",
-            "Role": "PUBLIC",
+            "Roles": ["PUBLIC"],
             "Databases": "DEMO_DB",
             "Schemas": "PUBLIC",
             "Privileges": ["MODIFY","CREATE FUNCTION","CREATE FILE FORMAT","CREATE PIPE","USAGE","CREATE STAGE","CREATE SEQUENCE","MONITOR","CREATE TABLE","CREATE VIEW"]
@@ -121,16 +129,18 @@ Each schemaObjectPrivileges item contains:
     "schemaObjectPrivileges": [
         {
             "Purpose": "Grant data warehouse developers the complete freedom they need in the development environment",
-            "Role": "DataWarehouseDevelopers",
+            "Roles": ["DataWarehouseDevelopers"],
             "Databases": "*_DEV",
             "Schemas": "%",
             "Tables": "%",
             "Views": "%",
+            "FutureTables": true,
+            "FutureViews": true,
             "Privileges": ["SELECT","INSERT","UPDATE","DELETE","TRUNCATE"]
         },
         {
             "Purpose": "Grant reporting users the ability to select from any view in all production databases and schemas",
-            "Role": "ReportViewers",
+            "Roles": ["ReportViewers"],
             "Databases": "*_PROD",
             "Schemas": "%",
             "Tables": "",
@@ -139,7 +149,7 @@ Each schemaObjectPrivileges item contains:
         },
         {
             "Purpose": "Grant customer service users the ability to select only from Customer-related views in production only",
-            "Role": "CustomerService",
+            "Roles": ["CustomerService"],
             "Databases": "*_PROD",
             "Schemas": "%",
             "Tables": "CUSTOMER%",

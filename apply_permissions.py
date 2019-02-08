@@ -16,6 +16,7 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
     os.environ["SNOWFLAKE_AUTHENTICATOR"] = 'snowflake'
 
     all_databases = fetch_databases(verbose)
+    all_schemas = fetch_schemas(all_databases,verbose)
     print("databases found: {0}".format(all_databases))
     with open(permissions_file) as f:
         permissions_json = json.load(f)
@@ -37,13 +38,14 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
         if account_object_privilege.get("Warehouses") != None:
             for privilege in account_object_privilege["Privileges"]:
                 for warehouse in [x for x in all_warehouses if fnmatch.fnmatch(x, account_object_privilege.get("Warehouses"))]:
-                    all_defined_warehouse_privileges.append("GRANT {0} ON WAREHOUSE {1} TO ROLE {2}".format(privilege,warehouse,account_object_privilege["Role"]))
+                    for role in account_object_privilege["Roles"]:
+                        all_defined_warehouse_privileges.append("GRANT {0} ON WAREHOUSE {1} TO ROLE {2}".format(privilege,warehouse,role))
 
         if account_object_privilege.get("Databases") != None:
             for privilege in account_object_privilege["Privileges"]:
                 for database in [x for x in all_databases if fnmatch.fnmatch(x, account_object_privilege.get("Databases"))]:
-                    all_defined_database_privileges.append(
-                        "GRANT {0} ON DATABASE {1} TO ROLE {2}".format(privilege, database, account_object_privilege["Role"]))
+                    for role in account_object_privilege["Roles"]:
+                        all_defined_database_privileges.append("GRANT {0} ON DATABASE {1} TO ROLE {2}".format(privilege, database, role))
 
     all_missing_warehouse_privileges = (list(set(all_defined_warehouse_privileges) - set(existing_warehouse_grants)))
     all_superfluous_warehouse_privileges = (list(set(existing_warehouse_grants) - set(all_defined_warehouse_privileges)))
@@ -85,14 +87,21 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
     all_defined_schema_object_privileges={}
     existing_database_schema_object_grants={}
     existing_database_schema_grants={}
+    existing_future_database_schema_object_grants={}
     for database in all_databases:
         existing_database_schema_grants[database] = generate_existing_schema_privileges_sql(database, verbose)
-        existing_database_schema_object_grants[database] = generate_existing_table_and_view_privileges_sql(database, verbose)
+        existing_database_schema_object_grants[database] = generate_existing_table_and_view_privileges_sql(database, snowflake_role, verbose)
+        schemas_in_this_database=[]
+        for schema in [x for x in all_schemas if x[0] == database]:
+            schemas_in_this_database.append(schema[1])
+        existing_future_database_schema_object_grants[database] = generate_existing_future_table_and_view_privileges_sql(database, snowflake_role, schemas_in_this_database, verbose)
+
         all_defined_schema_privileges[database]=set()
         all_defined_schema_object_privileges[database]=set()
         if verbose:
             print("Statements to grant existing schema privileges in database '{0}': {1}".format(database,existing_database_schema_grants[database]))
             print("Statements to grant existing schema object privileges in database '{0}': {1}".format(database,existing_database_schema_object_grants[database]))
+            print("Statements to grant existing future schema object privileges in database '{0}': {1}".format(database,existing_future_database_schema_object_grants[database]))
 
 
     # iterate through the privilege rules defined in the file.
@@ -105,32 +114,47 @@ def apply_permissions(snowflake_account, snowflake_user, snowflake_role, snowfla
         for database in selected_databases:
             print("Applying rule to database {0}".format(database))
             print("Generating SQL script to determine existing privileges")
-
-            grant_privileges_sql_statements = generate_grant_schema_privileges_sql(database,
-                                                                 schema_privilege["Role"],
+            for role in schema_privilege["Roles"]:
+                grant_privileges_sql_statements = generate_grant_schema_privileges_sql(database,
+                                                                 role,
                                                                  schema_privilege["Schemas"],
                                                                  schema_privilege["Privileges"],
                                                                  verbose)
 
-            all_defined_schema_privileges[database]=all_defined_schema_privileges[database].union(grant_privileges_sql_statements)
+                all_defined_schema_privileges[database]=all_defined_schema_privileges[database].union(grant_privileges_sql_statements)
+
 
     for schema_object_privilege in permissions_json["schemaObjectPrivileges"]:
         print("Applying rule {0}".format(schema_object_privilege["Purpose"]))
-        selected_databases = [x for x in all_databases if fnmatch.fnmatch(x,schema_object_privilege["Databases"])]
+        selected_databases = [x for x in all_databases if fnmatch.fnmatch(x, schema_object_privilege["Databases"])]
         print(selected_databases)
         for database in selected_databases:
             print("Applying rule to database {0}".format(database))
-            print("Generating SQL script to determine existing privileges")
-
-            grant_privileges_sql_statements = generate_grant_privileges_sql(database,
-                                                                 schema_object_privilege["Role"],
+            print("Generating SQL script to apply privileges defined in Permissions json")
+            for role in schema_object_privilege["Roles"]:
+                grant_privileges_sql_statements = generate_grant_privileges_sql(database,
+                                                                 role,
                                                                  schema_object_privilege["Schemas"],
                                                                  schema_object_privilege["Tables"],
                                                                  schema_object_privilege["Views"],
                                                                  schema_object_privilege["Privileges"],
+                                                                 snowflake_role,
                                                                  verbose)
-
-            all_defined_schema_object_privileges[database]=all_defined_schema_object_privileges[database].union(grant_privileges_sql_statements)
+                future_tables = False
+                future_views = False
+                if 'FutureTables' in schema_object_privilege:
+                    future_tables = schema_object_privilege['FutureTables']
+                if 'FutureViews' in schema_object_privilege:
+                    future_views = schema_object_privilege['FutureViews']
+                grant_future_privileges_sql_statements = generate_grant_future_privileges_sql(database,
+                                                                                              role,
+                                                                                              schema_object_privilege["Schemas"],
+                                                                                              future_tables,
+                                                                                              future_views,
+                                                                                              schema_object_privilege["Privileges"],
+                                                                                              verbose)
+                all_defined_schema_object_privileges[database] = all_defined_schema_object_privileges[database].union(grant_future_privileges_sql_statements)
+                all_defined_schema_object_privileges[database] = all_defined_schema_object_privileges[database].union(grant_privileges_sql_statements)
 
     # for each database, produce lists of both missing and superfluous statements (the latter being REVOKEs),
     # such that running them all should bring the database in sync with the rules file
@@ -252,6 +276,20 @@ def fetch_databases(verbose):
                 databases.append(row[1])
     return databases
 
+def fetch_schemas(databases, verbose):
+    statements = []
+    for database in databases:
+        statements.append("select catalog_name,schema_name from \"{0}\".\"INFORMATION_SCHEMA\".\"SCHEMATA\"".format(database))
+    query = " union ".join(statements)
+
+    results = execute_snowflake_query('UTIL_DB', None, query, verbose)
+    schemas = []
+    for cursor in results:
+        for row in cursor:
+            schemas.append([row[0],row[1]])
+    return schemas
+
+
 def fetch_warehouses(verbose):
     query = "SHOW WAREHOUSES"
     results = execute_snowflake_query('UTIL_DB', None, query, verbose)
@@ -272,12 +310,16 @@ def fetch_roles(snowflake_database, snowflake_schema, verbose):
                 roles.append(row[0])
     return roles
 
-def generate_existing_table_and_view_privileges_sql(snowflake_database, verbose):
+def generate_existing_table_and_view_privileges_sql(snowflake_database, snowflake_role, verbose):
     query = """SELECT 'GRANT '||PRIVILEGE_TYPE||' ON '||REPLACE (tab.TABLE_TYPE,'BASE ','')||' \"'||OBJECT_CATALOG||'\".\"'||OBJECT_SCHEMA||'\".\"'||OBJECT_NAME||'\" TO ROLE \"'||GRANTEE||'\"' AS Privileges
     FROM {0}.INFORMATION_SCHEMA.OBJECT_PRIVILEGES priv
-    JOIN {0}.INFORMATION_SCHEMA.TABLES tab ON priv.OBJECT_CATALOG=tab.TABLE_CATALOG and priv.OBJECT_SCHEMA=tab.TABLE_SCHEMA and priv.OBJECT_NAME=tab.TABLE_NAME
+    JOIN {0}.INFORMATION_SCHEMA.TABLES tab 
+        ON priv.OBJECT_CATALOG=tab.TABLE_CATALOG 
+        and priv.OBJECT_SCHEMA=tab.TABLE_SCHEMA 
+        and priv.OBJECT_NAME=tab.TABLE_NAME
     WHERE OBJECT_TYPE = 'TABLE'
-    AND PRIVILEGE_TYPE != 'OWNERSHIP'""".format(snowflake_database)
+    AND TABLE_OWNER = '{1}'
+    AND PRIVILEGE_TYPE != 'OWNERSHIP'""".format(snowflake_database, snowflake_role)
     results = execute_snowflake_query(snowflake_database, None, query, verbose)
     existing_privileges = []
     for cursor in results:
@@ -285,6 +327,19 @@ def generate_existing_table_and_view_privileges_sql(snowflake_database, verbose)
             if row[0] != 'Statement executed successfully.':
                 existing_privileges.append(row[0])
     return existing_privileges
+
+def generate_existing_future_table_and_view_privileges_sql(snowflake_database, snowflake_role, snowflake_schemas, verbose):
+    future_grants=[]
+    for schema in snowflake_schemas:
+        if (schema[0]==snowflake_database):
+            query = """SHOW FUTURE GRANTS IN SCHEMA \"{0}\".\"{1}\"""".format(schema[0], schema[1])
+            results = execute_snowflake_query(snowflake_database, None, query, verbose)
+            for cursor in results:
+                for row in cursor:
+                    if row[0] != 'Statement executed successfully.':
+                        future_grants.append("GRANT {0} ON FUTURE {1}S IN SCHEMA \"{2}\".\"{3}\" TO {4} {5}".format(row[1],row[2],schema[0],schema[1],row[4],row[5]))
+
+    return future_grants
 
 
 def generate_existing_schema_privileges_sql(snowflake_database, verbose):
@@ -351,8 +406,44 @@ def all_possible_schema_privileges():
 def all_possible_schema_privileges_clause():
     return (" union ".join(["select '{0}' as name".format(privileges) for privileges in all_possible_schema_privileges()]))
 
+def generate_grant_future_privileges_sql(database_name, grantee_role,schemas, future_tables, future_views, privileges, verbose):
+    queries = []
+    if future_tables:
+        queries.append("""
+    SELECT 'GRANT '||privs.name||' ON FUTURE TABLES IN SCHEMA \"{0}\".\"'||schms.SCHEMA_NAME||'\" TO ROLE \"{1}\"' AS Statement
+    FROM \"{0}\".INFORMATION_SCHEMA.SCHEMATA schms
+    RIGHT OUTER JOIN ({3}) privs
+    WHERE schms.SCHEMA_NAME LIKE '{2}'
+    AND schms.SCHEMA_NAME NOT IN ('INFORMATION_SCHEMA')
+    AND privs.name IN ({4})""".format(database_name,
+                                        grantee_role,
+                                        schemas,
+                                        all_possible_table_and_view_privileges_clause(),
+                                        ",".join(["'{0}'".format(privilege) for privilege in privileges])))
 
-def generate_grant_privileges_sql(database_name, grantee_role,schemas, tables, views, privileges, verbose):
+    if future_views:
+        queries.append("""
+    SELECT 'GRANT '||privs.name||' ON FUTURE VIEWS IN SCHEMA \"{0}\".\"'||schms.SCHEMA_NAME||'\" TO ROLE \"{1}\"' AS Statement
+    FROM \"{0}\".INFORMATION_SCHEMA.SCHEMATA schms
+    RIGHT OUTER JOIN ({3}) privs
+    WHERE schms.SCHEMA_NAME LIKE '{2}'
+    AND schms.SCHEMA_NAME NOT IN ('INFORMATION_SCHEMA')
+    AND privs.name IN ({4})""".format(database_name,
+                                        grantee_role,
+                                        schemas,
+                                        all_possible_table_and_view_privileges_clause(),
+                                        ",".join(["'{0}'".format(privilege) for privilege in privileges])))
+
+    results = execute_snowflake_query(database_name, None, " UNION ".join(queries), verbose)
+    grant_privileges_sql = []
+    for cursor in results:
+        for row in cursor:
+            if row[0] != 'Statement executed successfully.':
+                grant_privileges_sql.append(row[0])
+    return grant_privileges_sql
+
+
+def generate_grant_privileges_sql(database_name, grantee_role,schemas, tables, views, privileges, deployer_role, verbose):
     query = """USE DATABASE {0};
     SELECT 'GRANT '||privs.name||' ON TABLE \"{0}\".\"'||schms.SCHEMA_NAME||'\".\"'||tbls.TABLE_NAME||'\" TO ROLE \"{1}\"' AS Statement
     FROM INFORMATION_SCHEMA.SCHEMATA schms
@@ -361,6 +452,7 @@ def generate_grant_privileges_sql(database_name, grantee_role,schemas, tables, v
     WHERE schms.SCHEMA_NAME LIKE '{2}'
     AND tbls.TABLE_NAME LIKE '{3}'
     AND tbls.TABLE_TYPE = 'BASE TABLE'
+    AND tbls.TABLE_OWNER = '{7}'
     AND schms.SCHEMA_NAME NOT IN ('INFORMATION_SCHEMA')
     AND privs.name IN ({6})
     UNION
@@ -371,7 +463,13 @@ def generate_grant_privileges_sql(database_name, grantee_role,schemas, tables, v
     WHERE schms.SCHEMA_NAME LIKE '{2}'
     AND vws.TABLE_NAME LIKE '{4}'
     AND schms.SCHEMA_NAME NOT IN ('INFORMATION_SCHEMA')
-    AND privs.name IN ({6})""".format(database_name,grantee_role,schemas, tables, views, all_possible_table_and_view_privileges_clause(),",".join(["'{0}'".format(privilege) for privilege in privileges]))
+    AND privs.name IN ({6})""".format(database_name,
+                                        grantee_role,
+                                        schemas,
+                                        tables,
+                                        views,
+                                        all_possible_table_and_view_privileges_clause(),",".join(["'{0}'".format(privilege) for privilege in privileges]),
+                                        deployer_role)
     results = execute_snowflake_query(database_name, None, query, verbose)
     grant_privileges_sql = []
     for cursor in results:
